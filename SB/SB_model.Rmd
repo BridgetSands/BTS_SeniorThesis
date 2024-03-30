@@ -1,0 +1,394 @@
+---
+title: "SB_model"
+author: "Bridget Sands"
+date: "2024-04-01"
+output: pdf_document
+---
+
+#### Bridget Sands
+#### Harvard University
+#### Applied Mathematics Senior Thesis
+#### April 1st, 2024
+
+# "SB_model.Rmd"
+
+#### Notebook Purpose and Summary:
+This notebook first combines the cleaned data for all tweleve seasons, casts and finalizes variable types, and fits the SB model and submodels.
+
+#### Input:
+Cleaned data for all tweleve seasons, after each has been run through the `Data_Cleaning_SB.ipynb` file.
+
+#### Output:
+For each model/submodel:
+- `rds` data type--> R objcet of model
+- `txt` of final model coefficients 
+
+### Additional Notes:
+Each model takes a significant amount of time to run. Its not as long as the PA_model(s), but it is still long.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Import necessary libraries
+library(dplyr)
+library(lme4)
+# model library
+library(ordinal)
+library(lme4)
+```
+
+```{r}
+# Read in initial data frame
+df <- read.csv('SB_data/da14_SB.csv')
+print(nrow(df))
+```
+
+```{r}
+# Read in rest of data
+files <- c('SB_data/da21_SB.csv', 'SB_data/da22_SB.csv', 'SB_data/da23_SB.csv', 'SB_data/ta14_SB.csv', 'SB_data/ta21_SB.csv', 'SB_data/ta22_SB.csv', 'SB_data/ta23_SB.csv', 'SB_data/mlb14_SB.csv', 'SB_data/mlb21_SB.csv', 'SB_data/mlb22_SB.csv', 'SB_data/mlb23_SB.csv')
+
+for (file in files) {
+  temp <- read.csv(file)
+  # Append new file to old files
+  df <- rbind(df, temp)
+}
+# Print length of full dataframe
+print(nrow(df))
+```
+
+```{r}
+# Print number of missing values in firstID
+cat('Number of nas in firstID: ', sum(is.na(df$firstID)), '\n')
+# Print number of missing values in Batter_id
+cat('Number of nas in Batter_id: ', sum(is.na(df$Batter_id)), '\n')
+
+# Filter data so there are no instances of NAs in firstID
+df <- df[!is.na(df$firstID), ]
+```
+
+```{r}
+# Check that proper conditions hold
+ls = c('AA', 'AAA', 'MLB')
+yrs = c(2014, 2021, 2022, 2023)
+
+for (l in ls){
+  print(l)
+  for (yr in yrs){
+    print(yr)
+    subset_df <- subset(df, (Year==yr) & (League == l), select = c(Pitch_timer, Bigger_bases, Defensive_shift_limits))
+    cat('Unique Pitch Timer Values: ', unique(subset_df$Pitch_timer), '\n')
+    cat('Unique Bigger Bases Values: ', unique(subset_df$Bigger_bases), '\n')
+    cat('Unique Defensive Shift Limit Values: ', unique(subset_df$Defensive_shift_limits), '\n')
+    cat('\n')
+  }
+}
+```
+
+```{r}
+# Inspect values of Strikes, Balls, and Outs
+table(df$Strikes)
+table(df$Balls)
+table(df$Outs)
+```
+
+```{r}
+# Ensure the data does not include any instances where there are more than two strikes (not possible in reality)
+df <- df[!(df$Strikes > 2), ]
+
+# Ensure the data does not include any instances where there are more than three balls (not possible in reality)
+df <- df[!(df$Balls > 3), ]
+
+# Get rid of old useless column
+df <- df[, -which(names(df) %in% c("X"))]
+```
+
+```{r}
+# Cast Strikes, Balls, Outs as Integers
+df$Strikes <- as.integer(df$Strikes)
+df$Balls <- as.integer(df$Balls)
+df$Outs <- as.integer(df$Outs)
+
+# Ensure unique values are proper
+cat("Unique Strikes values:", unique(df$Strikes), '\n')
+cat("Unique Balls values:", unique(df$Balls), '\n')
+cat("Unique Outs values:", unique(df$Outs), '\n')
+```
+
+```{r}
+# Cast Batter_home, Bigger_bases, ABS, and SBA as logicals
+df$Batter_home <- as.logical(df$Batter_home)
+df$Bigger_bases <- as.logical(df$Bigger_bases)
+df$ABS <- as.logical(df$ABS)
+df$SBA <- as.logical(df$SBA)
+
+# Ensure unique values are proper
+cat("Unique Batter_home values:", unique(df$Batter_home), '\n')
+cat("Unique Bigger_bases values:", unique(df$Bigger_bases), '\n')
+cat("Unique ABS values:", unique(df$ABS), '\n')
+cat("Unique SBA values:", unique(df$SBA), '\n')
+```
+
+```{r}
+# Cast Inning, AB_pickoffs, Year, League as factors:
+df$Inning <- as.factor(df$Inning)
+df$AB_pickoffs <- as.factor(df$AB_pickoffs)
+df$Year <- as.factor(df$Year)
+df$League <- as.factor(df$League)
+
+# Ensure unique values are proper:
+cat("Unique Inning values:", unique(df$Inning), '\n')
+cat("Unique AB_pickoffs values:", unique(df$AB_pickoffs), '\n')
+cat("Unique Year values:", unique(df$Year), '\n')
+cat("Unique League values:", unique(df$League), '\n')
+```
+```{r}
+table(df$AB_pickoffs)
+```
+
+```{r}
+# Cast Pitch_timer and Defensive_shift_limits as factors
+df$Pitch_timer <- as.factor(df$Pitch_timer)
+df$Defensive_shift_limits <- as.factor(df$Defensive_shift_limits)
+
+# Ensure unique values are proper:
+cat("Unique Pitch_timer values:", unique(df$Pitch_timer), '\n')
+cat("Unique Defensive_shift_limits values:", unique(df$Defensive_shift_limits), '\n')
+
+# Cast Batter_id, Pitcher_id, and firstID as factors
+df$Batter_id <- as.factor(df$Batter_id)
+df$Pitcher_id<- as.factor(df$Pitcher_id)
+df$firstID<- as.factor(df$firstID)
+
+# Note that beacause of the magnitude of Batter_id, Pitcher_id, and firstID, it does not make sense inspect
+```
+
+```{r}
+# Confirm final data types of each variable
+str(df)
+```
+
+### Regular SB Model:
+```{r}
+# Now, let's fit this model
+start_time <- Sys.time()
+model <- glmer(SBA ~ Strikes + Balls + Outs + Batter_home + Inning  + Year + League + AB_pickoffs + ABS + Pitch_timer + Bigger_bases + Defensive_shift_limits + (1|Batter_id) + (1|Pitcher_id) + (1|firstID), 
+               verbose = 2,
+               data = df, 
+               family = binomial,
+               control = glmerControl(calc.derivs = FALSE, tolPwrss = .1, optimizer="nloptwrap", optCtrl = list(algorithm = "NLOPT_LN_BOBYQA", ftol_abs = 1)))
+
+end_time <- Sys.time()
+computation_time <- end_time - start_time
+computation_time
+
+saveRDS(model, file = 'SB_F_315.rds')
+s <- summary(model)
+capture.output(s, file = "SB_315.txt")
+
+print('Done with regular, onto without AB_pickoffs.')
+```
+
+### Regular SB Model, no AB_pickoffs:
+```{r}
+start_time <- Sys.time()
+model_AB <- glmer(SBA ~ Strikes + Balls + Outs + Batter_home + Inning  + Year + League + ABS + Pitch_timer + Bigger_bases + Defensive_shift_limits + (1|Batter_id) + (1|Pitcher_id) + (1|firstID), 
+               verbose = 2,
+               data = df, 
+               family = binomial,
+               control = glmerControl(calc.derivs = FALSE, tolPwrss = .1, optimizer="nloptwrap", optCtrl = list(algorithm = "NLOPT_LN_BOBYQA", ftol_abs = 1)))
+
+end_time <- Sys.time()
+computation_time <- end_time - start_time
+computation_time
+
+saveRDS(model_AB, file = 'SB_F_315_NO_AB.rds')
+s_AB <- summary(model_AB)
+capture.output(s_AB, file = "SB_315_NO_AB.txt")
+
+print('Done with regular without AB_pickoffs, onto full count.')
+```
+
+### Isolate the sub-count situations
+```{r}
+# Print number of rows in whole dataframe
+nrow(df)
+# Isolate full counts, print number of rows in the subset
+df_fullCount <- subset(df, Balls==3&Strikes==2)
+nrow(df_fullCount)
+# Isolate empty counts, print number of rows in the subset
+df_emptyCount <- subset(df, Balls==0&Strikes==0)
+nrow(df_emptyCount)
+# Isolate pitcher's counts, print number of rows in the subset
+df_pitchersCount <- subset(df, Balls==0&Strikes==2)
+nrow(df_pitchersCount)
+# Isolate batter's counts, print number of rows in the subset
+df_battersCount <- subset(df, Balls==3&Strikes==0)
+nrow(df_battersCount)
+```
+
+### Full Count SB Model:
+```{r}
+# Now, let's fit this model
+start_time <- Sys.time()
+model_FC <- glmer(SBA ~ Strikes + Balls + Outs + Batter_home + Inning  + Year + League + AB_pickoffs + ABS + Pitch_timer + Bigger_bases + Defensive_shift_limits + (1|Batter_id) + (1|Pitcher_id) + (1|firstID), 
+               verbose = 2,
+               data = df_fullCount, 
+               family = binomial,
+               control = glmerControl(calc.derivs = FALSE, tolPwrss = .1, optimizer="nloptwrap", optCtrl = list(algorithm = "NLOPT_LN_BOBYQA", ftol_abs = 1)))
+
+end_time <- Sys.time()
+computation_time <- end_time - start_time
+computation_time
+
+saveRDS(model_FC, file = 'SB_F_315_fullCount.rds')
+s_FC <- summary(model_FC)
+capture.output(s_FC, file = "SB_315_fullCount.txt")
+
+print('Done with regular FullCount, onto FullCount without AB_pickoffs.')
+```
+
+### Full Count SB Model, no AB_pickoffs:
+```{r}
+start_time <- Sys.time()
+model_AB_FC <- glmer(SBA ~ Strikes + Balls + Outs + Batter_home + Inning  + Year + League + ABS + Pitch_timer + Bigger_bases + Defensive_shift_limits + (1|Batter_id) + (1|Pitcher_id) + (1|firstID), 
+               verbose = 2,
+               data = df_fullCount, 
+               family = binomial,
+               control = glmerControl(calc.derivs = FALSE, tolPwrss = .1, optimizer="nloptwrap", optCtrl = list(algorithm = "NLOPT_LN_BOBYQA", ftol_abs = 1)))
+
+end_time <- Sys.time()
+computation_time <- end_time - start_time
+computation_time
+
+saveRDS(model_AB_FC, file = 'SB_F_315_NO_AB_fullCount.rds')
+s_AB_FC <- summary(model_AB_FC)
+capture.output(s_AB_FC, file = "SB_315_NO_AB_fullCount.txt")
+
+print('Done with full count without AB_pickoffs, onto empty count.')
+```
+
+### Empty Count SB Model:
+```{r}
+# Now, let's fit this model
+start_time <- Sys.time()
+model_EC <- glmer(SBA ~ Strikes + Balls + Outs + Batter_home + Inning  + Year + League + AB_pickoffs + ABS + Pitch_timer + Bigger_bases + Defensive_shift_limits + (1|Batter_id) + (1|Pitcher_id) + (1|firstID), 
+               verbose = 2,
+               data = df_emptyCount, 
+               family = binomial,
+               control = glmerControl(calc.derivs = FALSE, tolPwrss = .1, optimizer="nloptwrap", optCtrl = list(algorithm = "NLOPT_LN_BOBYQA", ftol_abs = 1)))
+
+end_time <- Sys.time()
+computation_time <- end_time - start_time
+computation_time
+
+saveRDS(model_EC, file = 'SB_F_315_emptyCount.rds')
+s_EC <- summary(model_EC)
+capture.output(s_EC, file = "SB_315_emptyCount.txt")
+
+print('Done with regular, onto without AB_pickoffs.')
+```
+
+### Empty Count SB Model, no AB_pickoffs:
+```{r}
+start_time <- Sys.time()
+model_AB_EC <- glmer(SBA ~ Strikes + Balls + Outs + Batter_home + Inning  + Year + League + ABS + Pitch_timer + Bigger_bases + Defensive_shift_limits + (1|Batter_id) + (1|Pitcher_id) + (1|firstID), 
+               verbose = 2,
+               data = df_emptyCount, 
+               family = binomial,
+               control = glmerControl(calc.derivs = FALSE, tolPwrss = .1, optimizer="nloptwrap", optCtrl = list(algorithm = "NLOPT_LN_BOBYQA", ftol_abs = 1)))
+
+end_time <- Sys.time()
+computation_time <- end_time - start_time
+computation_time
+
+saveRDS(model_AB_EC, file = 'SB_F_315_NO_AB_emptyCount.rds')
+s_AB_EC <- summary(model_AB_EC)
+capture.output(s_AB_EC, file = "SB_315_NO_AB_emptyCount.txt")
+
+print('Done with empty count without AB_pickoffs, onto pitchers count.')
+```
+
+### Pitcher's Count SB Model:
+```{r}
+# Now, let's fit this model
+start_time <- Sys.time()
+model_PC <- glmer(SBA ~ Strikes + Balls + Outs + Batter_home + Inning  + Year + League + AB_pickoffs + ABS + Pitch_timer + Bigger_bases + Defensive_shift_limits + (1|Batter_id) + (1|Pitcher_id) + (1|firstID), 
+               verbose = 2,
+               data = df_pitchersCount, 
+               family = binomial,
+               control = glmerControl(calc.derivs = FALSE, tolPwrss = .1, optimizer="nloptwrap", optCtrl = list(algorithm = "NLOPT_LN_BOBYQA", ftol_abs = 1)))
+
+end_time <- Sys.time()
+computation_time <- end_time - start_time
+computation_time
+
+saveRDS(model_PC, file = 'SB_F_315_pitchersCount.rds')
+s_PC <- summary(model_PC)
+capture.output(s_PC, file = "SB_315_pitchersCount.txt")
+
+print('Done with regular pitchers count, onto without AB_pickoffs.')
+```
+
+### Pitcher's Count SB Model, no AB_pickoffs:
+```{r}
+start_time <- Sys.time()
+model_AB_PC <- glmer(SBA ~ Strikes + Balls + Outs + Batter_home + Inning  + Year + League + ABS + Pitch_timer + Bigger_bases + Defensive_shift_limits + (1|Batter_id) + (1|Pitcher_id) + (1|firstID), 
+               verbose = 2,
+               data = df_pitchersCount, 
+               family = binomial,
+               control = glmerControl(calc.derivs = FALSE, tolPwrss = .1, optimizer="nloptwrap", optCtrl = list(algorithm = "NLOPT_LN_BOBYQA", ftol_abs = 1)))
+
+end_time <- Sys.time()
+computation_time <- end_time - start_time
+computation_time
+
+saveRDS(model_AB_PC, file = 'SB_F_315_NO_AB_pitchersCount.rds')
+s_AB_PC <- summary(model_AB_PC)
+capture.output(s_AB_PC, file = "SB_315_NO_AB_pitchersCount.txt")
+
+print('Done with pitchers count without AB_pickoffs, onto batters count.')
+```
+
+### Batter's Count SB Model:
+```{r}
+# Now, let's fit this model
+start_time <- Sys.time()
+model_BC <- glmer(SBA ~ Strikes + Balls + Outs + Batter_home + Inning  + Year + League + AB_pickoffs + ABS + Pitch_timer + Bigger_bases + Defensive_shift_limits + (1|Batter_id) + (1|Pitcher_id) + (1|firstID), 
+               verbose = 2,
+               data = df_battersCount, 
+               family = binomial,
+               control = glmerControl(calc.derivs = FALSE, tolPwrss = .1, optimizer="nloptwrap", optCtrl = list(algorithm = "NLOPT_LN_BOBYQA", ftol_abs = 1)))
+
+end_time <- Sys.time()
+computation_time <- end_time - start_time
+computation_time
+
+saveRDS(model_BC, file = 'SB_F_315_battersCount.rds')
+s_BC <- summary(model_BC)
+capture.output(s_BC, file = "SB_315_battersCount.txt")
+
+print('Done with regular batters count, onto without AB_pickoffs.')
+```
+
+### Batter's Count SB Model, no AB_pickoffs:
+```{r}
+start_time <- Sys.time()
+model_AB_BC <- glmer(SBA ~ Strikes + Balls + Outs + Batter_home + Inning  + Year + League + ABS + Pitch_timer + Bigger_bases + Defensive_shift_limits + (1|Batter_id) + (1|Pitcher_id) + (1|firstID), 
+               verbose = 2,
+               data = df_battersCount, 
+               family = binomial,
+               control = glmerControl(calc.derivs = FALSE, tolPwrss = .1, optimizer="nloptwrap", optCtrl = list(algorithm = "NLOPT_LN_BOBYQA", ftol_abs = 1)))
+
+end_time <- Sys.time()
+computation_time <- end_time - start_time
+computation_time
+
+saveRDS(model_AB_BC, file = 'SB_F_315_NO_AB_battersCount.rds')
+s_AB_BC <- summary(model_AB_BC)
+capture.output(s_AB_BC, file = "SB_315_NO_AB_battersCount.txt")
+
+print('DONE WITH ALL!!!')
+```
+
