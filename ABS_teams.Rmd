@@ -1,0 +1,94 @@
+---
+title: "Acquire game_pks for 2022 ABS games in Triple-A Baseball:"
+author: "Bridget Sands"
+output: pdf_document
+date: "2024-04-01"
+---
+
+#### Bridget Sands
+#### Harvard University
+#### Applied Mathematics Senior Thesis
+#### April 1st, 2024
+
+# "ABS_teams.Rmd"
+
+#### Notebook Purpose and Summary:
+This notebook is only used acquire and export the game_pks in which the automatic ball and strike system (ABS) was used in Triple-A baseball in its 2022 season.
+
+#### Input:
+Nothing specific from the user, input already set.
+
+#### Output:
+`csv` of game_pk values in which ABS was used from the 2022 Triple-A baseball season.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Import necessary libraries
+library(dplyr)
+library(ggeffects)
+library(baseballr)
+```
+
+
+```{r}
+# Get 2022 Triple-A Schedule
+ta_22_sch <- mlb_schedule(season = 2022, level_ids = "11")
+
+# Filter to only include regular season games
+ta_22_sch <- ta_22_sch[ta_22_sch$series_description=='Regular Season', ]
+
+# Cast the date as a date object
+ta_22_sch$date <- as.Date(ta_22_sch$date)
+
+# Inpsect data frame head
+head(ta_22_sch)
+```
+
+```{r}
+# Sort and view team options to identify proper spelling of names
+sort(unique(ta_22_sch$teams_home_team_name))
+```
+
+```{r}
+# Isolate the Charlotte Knights, spelled above 
+char <- "Charlotte Knights"
+
+# Isolate the names of the Pacific Coast League Teams
+problems <- c("Albuquerque Isotopes", "El Paso Chihuahuas", "Las Vegas Aviators", "Oklahoma City Dodgers", "Reno Aces", "Round Rock Express", "Sacramento River Cats", "Salt Lake Bees", "Sugar Land Space Cowboys", "Tacoma Rainiers")
+```
+
+```{r}
+# Isolate all game_pk values from games of the sesaon that the Charlotte Knights hosted
+pks1 <- ta_22_sch$game_pk[ta_22_sch$teams_home_team_name == char]
+
+# Isolate all game_pk values from games of the season on or after May 17th that the Pacific Coast Teams hosted
+pks2 <- ta_22_sch$game_pk[ta_22_sch$teams_home_team_name %in% problems & ta_22_sch$date >= '2022-05-17']
+```
+
+```{r}
+# Concatenate the list of the problematic pks
+pks <- c(pks1, pks2)
+
+# View 
+pks
+```
+
+```{r}
+# Convert list into data.frame
+my_df <- data.frame(value = pks)
+
+# Inspect
+my_df
+```
+```{r}
+# Write list to csv
+write.csv(my_df, file = "problem_pks.csv", row.names = FALSE)
+```
+
+
+
+
+
+
+

@@ -1,0 +1,122 @@
+---
+title: "Data Acquisition from baseballR"
+author: "Bridget Sands"
+output: pdf_document
+date: "2024-04-01"
+---
+
+#### Bridget Sands
+#### Harvard University
+#### Applied Mathematics Senior Thesis
+#### April 1st, 2024
+
+# "Data_Acquistion.Rmd"
+
+### Note: This is the 1st and only notebook used for data acquisition. It is the first of all of the code files that should be used, because without it there is no data to import into the others.
+
+#### Notebook Purpose and Summary:
+This Rmarkdown notebook makes calls to baseballR's functions in order to acquire pitch by pitch data for use.
+
+#### Input:
+Needs user imput relative to year and league to call functions for.
+
+#### Output:
+`csv` season of data for the specified year and league.
+
+### Additional Notes:
+This file, regardless of the season/year pairing, takes a signficant amount of time to run. Beware.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Import necessary libraries
+# baseballR, for access to data
+require(baseballr)
+# tidyverse, for data manipulation
+require(tidyverse)
+```
+
+```{r}
+# Initialize league id parameters to use
+league_ids <- c(
+  "MLB"="1", 
+  "AAA"="11", 
+  "AA"="12"
+)
+
+# Initialize year parameters to use
+years <- c(2014, 2021, 2022, 2023)
+```
+
+
+### REMEMBER: Change Year and League
+```{r}
+# Distinguish the year and league to use for this iteration
+league <- 'AA'
+league_id <- league_ids[league]
+year <- years[1]
+
+paste("Getting data for", league, "for the", year, "season.")
+```
+
+
+```{r}
+# Get MLB schedule for specific league and season
+ids <- mlb_schedule(season = year, level_ids = league_id)
+
+# Filter for only regular season games
+ids <- filter(ids, series_description == "Regular Season")
+
+# Inspect head of returned data
+head(ids)
+
+# Isolate the game_pks of data
+pks <- ids$game_pk
+```
+```{r}
+# Initialize pbp data by calling it for first game in pks list
+pbp_data <- mlb_pbp(pks[1])
+
+# Inspect
+head(pbp_data)
+```
+```{r}
+# Print length of pks, so we know how many we are iterating through
+length(pks)
+
+# Print pks to see
+pks
+```
+
+```{r}
+errors <- 0
+
+# Call function and append data for all subsequent games in pks list
+for (i in 2:length(pks)){
+  # Implement a tryCatch to continue iteration if function returns nothing
+  tryCatch({
+    pbp_data <- rbind(pbp_data, mlb_pbp(pks[i]), fill=TRUE)
+    
+    # Print if i is divisable by 100, for progress tracking purposes
+    if (i %% 100 == 0) {
+      print(i)
+    }
+  }, error = function(e) {
+    # Handle the error here, for example, print an error message
+    errors <- errors + 1
+    cat("Error occurred at iteration", i, ":", conditionMessage(e), "\n")
+  })
+}
+
+paste("There were a total of", errors, "games that didn't have availble pbp data.")
+```
+
+### REMEMBER: Change file output
+```{r}
+#apply(mlb_pbp_23, 2, class)
+write.csv(pbp, file = "dA14_r.csv")
+```
+
