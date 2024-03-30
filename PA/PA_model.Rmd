@@ -1,0 +1,321 @@
+---
+title: "PA_Model"
+author: "Bridget Sands"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+#### Bridget Sands
+#### Harvard University
+#### Applied Mathematics Senior Thesis
+#### April 1st, 2024
+
+# "PA_model.Rmd"
+
+#### Notebook Purpose and Summary:
+This notebook first combines the cleaned data for all tweleve seasons, casts and finalizes variable types, and fits the PA model and submodels.
+
+#### Input:
+Cleaned data for all tweleve seasons, after each has been run through the `Data_Cleaning_PA.ipynb` file.
+
+#### Output:
+For each model/submodel:
+- `rds` data type--> R object of model
+- `txt` of final model coefficients 
+
+### Additional Notes:
+Each model takes a significant amount of time to run. Some of them multiple days if fitted on the entire data. Beware.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Import necessary libraries
+# data manipulation library
+library(dplyr)
+# model library
+library(ordinal)
+library(lme4)
+library(ggeffects)
+```
+
+
+```{r}
+# Read in initial data frame
+df <- read.csv('PA_data/da14_PA.csv')
+print(nrow(df))
+```
+
+```{r}
+# Read in rest of data
+files <- c('PA_data/da21_PA.csv', 'PA_data/da22_PA.csv', 'PA_data/da23_PA.csv', 'PA_data/ta14_PA.csv', 'PA_data/ta21_PA.csv', 'PA_data/ta22_PA.csv', 'PA_data/ta23_PA.csv', 'PA_data/mlb14_PA.csv', 'PA_data/mlb21_PA.csv', 'PA_data/mlb22_PA.csv', 'PA_data/mlb23_PA.csv')
+
+for (file in files) {
+  temp <- read.csv(file)
+  # Append new file to old files
+  df <- rbind(df, temp)
+}
+# Print length of full dataframe
+print(nrow(df))
+```
+
+```{r}
+# Check that condition treatments are correct
+ls = c('AA', 'AAA', 'MLB')
+yrs = c(2014, 2021, 2022, 2023)
+
+for (l in ls){
+  print(l)
+  for (yr in yrs){
+    print(yr)
+    subset_df <- subset(df, (Year==yr) & (League == l), select = c(Pitch_timer, Bigger_bases, Defensive_shift_limits))
+    cat('Unique Pitch Timer Values: ', unique(subset_df$Pitch_timer), '\n')
+    cat('Unique Bigger Bases Values: ', unique(subset_df$Bigger_bases), '\n')
+    cat('Unique Defensive Shift Limit Values: ', unique(subset_df$Defensive_shift_limits), '\n')
+    cat('\n')
+  }
+}
+```
+
+```{r}
+# Ensure the data does not include any instances where there are more than two strikes (not possible in reality)
+df <- df[!(df$Strikes > 2), ]
+
+# Ensure the data does not include any instances where there are more than three balls (not possible in reality)
+df <- df[!(df$Balls > 3), ]
+
+# Get rid of old useless column
+df <- df[, -which(names(df) %in% c("X"))]
+```
+
+```{r}
+# Cast Strikes, Balls, Outs as Integers
+df$Strikes <- as.integer(df$Strikes)
+df$Balls <- as.integer(df$Balls)
+df$Outs <- as.integer(df$Outs)
+
+# Ensure unique values are proper
+cat("Unique Strikes values:", unique(df$Strikes), '\n')
+cat("Unique Balls values:", unique(df$Balls), '\n')
+cat("Unique Outs values:", unique(df$Outs), '\n')
+```
+
+```{r}
+# Cast Batter_home, Bigger_bases, and ABS as logicals
+df$Batter_home <- as.logical(df$Batter_home)
+df$Bigger_bases <- as.logical(df$Bigger_bases)
+df$ABS <- as.logical(df$ABS)
+
+# Ensure unique values are proper
+cat("Unique Batter_home values:", unique(df$Batter_home), '\n')
+cat("Unique Bigger_bases values:", unique(df$Bigger_bases), '\n')
+cat("Unique ABS values:", unique(df$ABS), '\n')
+```
+
+```{r}
+# Cast Inning, Matchup_handed, Year, League as factors:
+df$Inning <- as.factor(df$Inning)
+df$Matchup_handed <- as.factor(df$Matchup_handed)
+df$Year <- as.factor(df$Year)
+df$League <- as.factor(df$League)
+
+# Ensure unique values are proper:
+cat("Unique Inning values:", unique(df$Inning), '\n')
+cat("Unique Matchup_handed values:", unique(df$Matchup_handed), '\n')
+cat("Unique Year values:", unique(df$Year), '\n')
+cat("Unique League values:", unique(df$League), '\n')
+```
+```{r}
+# Cast Pitch_timer and Defensive_shift_limits as factors
+df$Pitch_timer <- as.factor(df$Pitch_timer)
+df$Defensive_shift_limits <- as.factor(df$Defensive_shift_limits)
+
+# Ensure unique values are proper:
+cat("Unique Pitch_timer values:", unique(df$Pitch_timer), '\n')
+cat("Unique Defensive_shift_limits values:", unique(df$Defensive_shift_limits), '\n')
+
+# Cast Batter_id and Pitcher_id as factors
+df$Batter_id <- as.factor(df$Batter_id)
+df$Pitcher_id<- as.factor(df$Pitcher_id)
+
+# Note that beacause of the magnitude of Batter_id and Pitcher_id  it does not make sense inspect
+```
+
+```{r}
+# Set order for base states
+men_ob_order <- c("Empty", "Men_On", "RISP", "Loaded")
+
+# Cast Men_OB as an ordinal factor
+df <- df %>%
+  mutate(Men_OB = factor(Men_OB, ordered = TRUE, levels = men_ob_order))
+
+# Ensure unique values are proper:
+cat("Unique Men_OB values:", unique(df$Men_OB))
+```
+
+
+```{r}
+# Set order for response variable
+pitch_outcome_order <- c("Strike", "InPlay_Out", "Foul", "Ball", "Single", "Double", "Triple", "HR")
+
+# Cast Pitch_outcome as an ordinal factor
+df <- df %>%
+  mutate(Pitch_outcome = factor(Pitch_outcome, ordered = TRUE, levels = pitch_outcome_order))
+
+# Ensure unique values are proper:
+cat("Unique Pitch_outcome values:", unique(df$Pitch_outcome))
+```
+
+```{r}
+# Confirm final data types of each variable
+str(df)
+```
+
+### Isolate the sub-count situations
+```{r}
+# Print number of rows in whole dataframe
+nrow(df)
+# Isolate full counts, print number of rows in the subset
+df_fullCount <- subset(df, Balls==3&Strikes==2)
+nrow(df_fullCount)
+# Isolate empty counts, print number of rows in the subset
+df_emptyCount <- subset(df, Balls==0&Strikes==0)
+nrow(df_emptyCount)
+# Isolate pitcher's counts, print number of rows in the subset
+df_pitchersCount <- subset(df, Balls==0&Strikes==2)
+nrow(df_pitchersCount)
+# Isolate batter's counts, print number of rows in the subset
+df_battersCount <- subset(df, Balls==3&Strikes==0)
+nrow(df_battersCount)
+```
+
+### Regular PA Model:
+```{r}
+# Define control parameters
+my_control <- clmm.control(trace = 1, method = "nlminb", abs.tol = 1, maxIter = 20, maxLineIter = 20, gradTol = .1, useMatrix = FALSE)
+
+start_time <- Sys.time()
+
+model <- clmm(Pitch_outcome ~ Strikes + Balls + Outs + Men_OB + Batter_home + Matchup_handed + Inning + Year + League + ABS + Pitch_timer + Bigger_bases + Defensive_shift_limits + (1|Batter_id) + (1|Pitcher_id), 
+                data = df,
+                link = "logit",
+                control = my_control)
+
+end_time <- Sys.time()
+computation_time <- end_time - start_time
+computation_time
+# Export model
+saveRDS(model, file = 'PA.rds')
+
+s <- summary(model)
+s
+capture.output(s, file = "PA_OG.txt")
+
+s2 <- fitted(model)
+write.csv(as.data.frame(s2), file = "PA_OG_fitted.csv", row.names = FALSE)
+
+print('Done with Regular Model, onto Full Count.')
+```
+
+#### Define formula to be called in other models:
+```{r}
+form <- Pitch_outcome ~ Strikes + Balls + Outs + Men_OB + Batter_home + Matchup_handed + Inning + Year + League + ABS + Pitch_timer + Bigger_bases + Defensive_shift_limits + (1|Batter_id) + (1|Pitcher_id)
+```
+
+### Full Count PA Model:
+```{r}
+start_time <- Sys.time()
+
+model_fullCount <- clmm(form,
+                        data = df_fullCount,
+                        link = "logit",
+                        control = my_control)
+
+end_time <- Sys.time()
+computation_time <- end_time - start_time
+computation_time
+
+saveRDS(model_fullCount, file = 'PA_fullCount.rds')
+
+s_fullCount <- summary(model_fullCount)
+capture.output(s_fullCount, file = "PA_fullCount.txt")
+
+s2_fullCount <- fitted(model_fullCount)
+write.csv(as.data.frame(s2_fullCount), file = "PA_fullCount_fitted.csv", row.names = FALSE)
+
+print('Done with Full Count Model, onto Empty Count.')
+```
+
+### Empty Count PA Model
+```{r}
+start_time <- Sys.time()
+
+model_emptyCount <- clmm(form, 
+                        data = df_emptyCount,
+                        link = "logit",
+                        control = my_control)
+
+end_time <- Sys.time()
+computation_time <- end_time - start_time
+computation_time
+
+saveRDS(model_emptyCount, file = 'PA_emptyCount.rds')
+
+s_emptyCount <- summary(model_emptyCount)
+capture.output(s_emptyCount, file = "PA_emptyCount.txt")
+
+s2_emptyCount <- fitted(model_emptyCount)
+write.csv(as.data.frame(s2_emptyCount), file = "PA_emptyCount_fitted.csv", row.names = FALSE)
+
+print('Done with Empty Count Model, onto Pitchers Count.')
+```
+
+### Pitcher's Count PA Model:
+```{r}
+start_time <- Sys.time()
+
+model_pitchersCount <- clmm(form, 
+                        data = df_pitchersCount,
+                        link = "logit",
+                        control = my_control)
+
+end_time <- Sys.time()
+computation_time <- end_time - start_time
+computation_time
+
+saveRDS(model_pitchersCount, file = 'PA_pitchersCount.rds')
+
+s_pitchersCount <- summary(model_pitchersCount)
+capture.output(s_pitchersCount, file = "PA_pitchersCount.txt")
+
+s2_pitchersCount <- fitted(model_pitchersCount)
+write.csv(as.data.frame(s2_pitchersCount), file = "PA_pitchersCount_fitted.csv", row.names = FALSE)
+
+print('Done with Pitchers Count Model, onto Batters Count.')
+```
+
+### Batter's Count PA Model:
+```{r}
+start_time <- Sys.time()
+
+model_battersCount <- clmm(form, 
+                        data = df_battersCount,
+                        link = "logit",
+                        control = my_control)
+
+end_time <- Sys.time()
+computation_time <- end_time - start_time
+computation_time
+
+saveRDS(model_battersCount, file = 'PA_battersCount.rds')
+
+s_battersCount <- summary(model_battersCount)
+capture.output(s_battersCount, file = "PA_battersCount.txt")
+
+s2_battersCount <- fitted(model_battersCount)
+write.csv(as.data.frame(s2_battersCount), file = "PA_battersCount_fitted.csv", row.names = FALSE)
+
+print('DONE WITH ALL!!!')
+```
